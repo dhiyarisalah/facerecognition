@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import tensorflow as tf
+import matplotlib.pyplot as plt
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Input, Conv2D, MaxPool2D, Flatten, Dense, Dropout, GlobalAveragePooling2D
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
@@ -11,7 +12,7 @@ import json
 
 def create_custom_model(num_classes):
     return Sequential([
-        Input(shape=(48, 48, 1)),
+        Input(shape=(48, 48, 3)),
         Conv2D(32, (3, 3), activation='relu'),
         MaxPool2D(2, 2),
         Conv2D(64, (3, 3), activation='relu'),
@@ -44,8 +45,12 @@ class MetricsCallback(Callback):
     def __init__(self, validation_generator):
         super().__init__()
         self.validation_generator = validation_generator
+        self.val_f1s = []
+        self.val_recalls = []
+        self.val_precisions = []
 
     def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
         self.validation_generator.reset()
         val_predict = []
         val_targ = []
@@ -59,6 +64,10 @@ class MetricsCallback(Callback):
         _val_precision = precision_score(val_targ, val_predict, average='macro')
         _val_recall = recall_score(val_targ, val_predict, average='macro')
         _val_f1 = f1_score(val_targ, val_predict, average='macro')
+
+        self.val_f1s.append(_val_f1)
+        self.val_recalls.append(_val_recall)
+        self.val_precisions.append(_val_precision)
 
         logs['val_precision'] = _val_precision
         logs['val_recall'] = _val_recall
@@ -113,7 +122,7 @@ def main():
                   metrics=['accuracy'])
 
     # Prepare directories for saving models and logs
-    model_dir = os.path.join('../models')
+    model_dir = os.path.join('../models', args.fn)
     os.makedirs(model_dir, exist_ok=True)
 
     callbacks = [
@@ -122,7 +131,7 @@ def main():
         CSVLogger(os.path.join(model_dir, args.fn + '.log'))
     ]
 
-    model.fit(
+    history = model.fit(
         train_generator,
         epochs=args.epochs,
         validation_data=validation_generator,
@@ -131,6 +140,40 @@ def main():
 
     # Manually save the model to ensure it's in .h5 format
     model.save(os.path.join(model_dir, args.fn + '.h5'))
+
+    # Save hyperparameters and metrics to JSON
+    hyperparameters = {
+        'model_name': args.fn,
+        'epochs': args.epochs,
+        'batch_size': args.bs,
+        'learning_rate': args.lr,
+        'val_f1_scores': callbacks[1].val_f1s,
+        'val_recall_scores': callbacks[1].val_recalls,
+        'val_precision_scores': callbacks[1].val_precisions
+    }
+    with open(os.path.join(model_dir, 'training_parameters.json'), 'w') as f:
+        json.dump(hyperparameters, f, indent=4)
+
+    # Plot loss and accuracy
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Training and Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['accuracy'], label='Training Accuracy')
+    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+    plt.title('Training and Validation Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.legend()
+
+    plt.savefig(os.path.join(model_dir, 'training_validation_curves.png'))
+    plt.close()
 
 if __name__ == '__main__':
     main()
