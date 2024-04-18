@@ -3,7 +3,8 @@ import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Input, Conv2D, MaxPool2D, Flatten, Dense, Dropout, GlobalAveragePooling2D
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.regularizers import l2
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.callbacks import Callback, CSVLogger, ReduceLROnPlateau
 from sklearn.metrics import precision_score, recall_score, f1_score
@@ -12,34 +13,51 @@ import json
 
 def create_custom_model(num_classes):
     return Sequential([
-        Input(shape=(48, 48, 3)),
-        Conv2D(32, (3, 3), activation='relu'),
-        MaxPool2D(2, 2),
-        Conv2D(64, (3, 3), activation='relu'),
-        MaxPool2D(2, 2),
+        Input(shape=(48, 48, 1)),  
+        Conv2D(32, (15, 15), activation='relu', padding='same',
+               bias_regularizer=l2(0.1)),
+        MaxPooling2D((2, 2)),
+        Conv2D(32, (13, 13), activation='relu', padding='same',
+               bias_regularizer=l2(0.1)),
+        Dropout(0.1),
+        Conv2D(64, (8, 8), activation='relu', padding='same',
+               bias_regularizer=l2(0.1), kernel_regularizer=l2(0.1)),
+        Conv2D(64, (8, 8), activation='relu', padding='same',
+               bias_regularizer=l2(0.1), kernel_regularizer=l2(0.1)),
+        MaxPooling2D((2, 2)),
+        Dropout(0.1),
+        Conv2D(128, (6, 6), activation='relu', padding='same',
+               bias_regularizer=l2(0.1), kernel_regularizer=l2(0.1)),
+        Conv2D(128, (6, 6), activation='relu', padding='same',
+               bias_regularizer=l2(0.1), kernel_regularizer=l2(0.1)),
+        MaxPooling2D((2, 2)),
+        Dropout(0.2),
+        Conv2D(256, (3, 3), activation='relu', padding='same',
+               bias_regularizer=l2(0.000001), kernel_regularizer=l2(0.000001)),
+        Dropout(0.3),
         Flatten(),
-        Dense(128, activation='relu'),
+        Dense(1024, activation='relu', bias_regularizer=l2(0.1)),
         Dropout(0.2),
         Dense(num_classes, activation='softmax')
     ])
 
-def create_vgg16_model(num_classes):
-    base_model = tf.keras.applications.VGG16(weights='imagenet', include_top=False, input_shape=(48, 48, 3))
-    base_model.trainable = False
-    return Sequential([
-        base_model,
-        GlobalAveragePooling2D(),
-        Dense(num_classes, activation='softmax')
-    ])
+# def create_vgg16_model(num_classes):
+#     base_model = tf.keras.applications.VGG16(weights='imagenet', include_top=False, input_shape=(48, 48, 3))
+#     base_model.trainable = False
+#     return Sequential([
+#         base_model,
+#         GlobalAveragePooling2D(),
+#         Dense(num_classes, activation='softmax')
+#     ])
 
-def create_resnet_model(num_classes):
-    base_model = tf.keras.applications.ResNet50(weights='imagenet', include_top=False, input_shape=(48, 48, 3))
-    base_model.trainable = False
-    return Sequential([
-        base_model,
-        GlobalAveragePooling2D(),
-        Dense(num_classes, activation='softmax')
-    ])
+# def create_resnet_model(num_classes):
+#     base_model = tf.keras.applications.ResNet50(weights='imagenet', include_top=False, input_shape=(48, 48, 3))
+#     base_model.trainable = False
+#     return Sequential([
+#         base_model,
+#         GlobalAveragePooling2D(),
+#         Dense(num_classes, activation='softmax')
+#     ])
 
 class MetricsCallback(Callback):
     def __init__(self, validation_generator):
@@ -110,10 +128,10 @@ def main():
     num_classes = train_generator.num_classes
     if args.model == 'custom':
         model = create_custom_model(num_classes)
-    elif args.model == 'vgg16':
-        model = create_vgg16_model(num_classes)
-    elif args.model == 'resnet':
-        model = create_resnet_model(num_classes)
+    # elif args.model == 'vgg16':
+    #     model = create_vgg16_model(num_classes)
+    # elif args.model == 'resnet':
+    #     model = create_resnet_model(num_classes)
     else:
         raise ValueError("Invalid model type. Choose 'custom', 'vgg16', or 'resnet'.")
 
@@ -122,7 +140,7 @@ def main():
                   metrics=['accuracy'])
 
     # Prepare directories for saving models and logs
-    model_dir = os.path.join('../models', args.fn)
+    model_dir = os.path.join('models', args.fn)
     os.makedirs(model_dir, exist_ok=True)
 
     callbacks = [
