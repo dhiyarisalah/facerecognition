@@ -29,7 +29,7 @@ def remove_zip_file(zip_path):
     print("Zip file removed.")
 
 def download_and_extract_dataset(url, root_folder):
-    zip_path = os.path.join(root_folder, 'ori.zip')
+    zip_path = os.path.join(root_folder, 'preprocessed_ori.zip')
     download_dataset(url, zip_path)
     extract_dataset(zip_path, root_folder)
     remove_macosx_dir(root_folder)
@@ -37,7 +37,7 @@ def download_and_extract_dataset(url, root_folder):
 
 if __name__ == "__main__":
     # URL to your dataset on Google Drive
-    url = 'https://drive.google.com/uc?id=1_Rj4UD_xY9KiVp5jXvCi8m3q2VB-q2TW'
+    url = 'https://drive.google.com/uc?id=15mVbCchvZ8esGC_KSrcWGhPcK9ihY2pC'
 
     # Root folder where you want to extract the dataset
     root_folder = '../'
