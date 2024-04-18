@@ -1,130 +1,88 @@
-from keras.preprocessing.image import ImageDataGenerator
-from skimage import io
 import os
+import cv2
+import numpy as np
+from mtcnn import MTCNN
+import matplotlib.pyplot as plt
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from tensorflow.keras.utils import to_categorical
 
-datagen = ImageDataGenerator(
-    rotation_range=30,
-    shear_range=0.1,
-    zoom_range=0.1,
-    horizontal_flip=True,
-    fill_mode='nearest'
-)
+class Preprocessing():
+    def __init__(self, base_save_dir="../preprocessed"):
+        self.detector = MTCNN()
+        self.datagen = ImageDataGenerator(
+        rotation_range=20,
+        shear_range=0.1,
+        zoom_range=0.1,
+        horizontal_flip=True,
+        fill_mode='nearest',
+        brightness_range=[0.8, 1.2],  # Adjust brightness, 0.8 to 1.2 range
+        channel_shift_range=20.0  # Randomly shift color channels
+        )
+        self.base_save_dir = base_save_dir
+        if not os.path.exists(self.base_save_dir):
+            os.makedirs(self.base_save_dir)
 
-# The base directory where the train data is stored
-base_train_dir = '../dataset/fer2013plus/train'
+    def detect_face(self, img, size=(224, 224)):
+        result = self.detector.detect_faces(img)
+        if len(result) == 0:
+            return None
+        x, y, width, height = result[0]['box']
+        face = img[y:y+height, x:x+width]
+        face = cv2.resize(face, size)
+        face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
+        return face
 
-# The base directory where the augmented images will be saved
-base_augmented_dir = '../dataset/augmented'
+    def load_dataset(self, dataset_folder, size=(224, 224)):
+        names, images = [], []
+        for dirpath, dirnames, filenames in os.walk(dataset_folder):
+            for filename in filenames:
+                if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    img_path = os.path.join(dirpath, filename)
+                    img = cv2.imread(img_path)
+                    if img is not None:
+                        img = self.detect_face(img, size=size)
+                        if img is not None:
+                            images.append(img)
+                            label = os.path.basename(dirpath)
+                            names.append(label)
+        return names, images
 
-# List of emotions
-# emotions = ['anger', 'contempt', 'disgust', 'fear', 'happiness', 'neutral', 'sadness', 'surprise']
+    def img_augmentation(self, img, label, index):
+        save_path = os.path.join(self.base_save_dir, label)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
 
-emotions = ['surprise']
+        # Determine the number of augmentations needed based on existing samples
+        num_existing = len([name for name in os.listdir(save_path) if os.path.isfile(os.path.join(save_path, name))])
+        num_augmentations = max(1, 50 - num_existing)  # Reduce number as the number of samples increases
 
-# Iterate over each emotion
-for emotion in emotions:
-    # Path to the specific emotion directory
-    emotion_dir = os.path.join(base_train_dir, emotion)
+        img = img.reshape((1,) + img.shape + (1,))
+        for i, batch in enumerate(self.datagen.flow(img, batch_size=1)):
+            aug_img = batch[0].astype(np.uint8).reshape(img.shape[1:3])
+            cv2.imwrite(os.path.join(save_path, f"{label}_{index}_{i+1}.png"), aug_img)
+            if i >= num_augmentations - 1:
+                break
+
+    def image_augmentator(self, images, names):
+        augmented_images = []
+        augmented_names = []
+        for i, (img, label) in enumerate(zip(images, names)):
+            self.img_augmentation(img, label, i)
+            augmented_images.append(img)  # Append original image for reference
+            augmented_names.append(label)
+        return augmented_names, augmented_images
+
+    def convert_categorical(self, names):
+        le = LabelEncoder()
+        name_vec = le.fit_transform(names)
+        categorical_name_vec = to_categorical(name_vec)
+        return le.classes_, categorical_name_vec
+
+    def split_dataset(self, images, labels, test_size=0.20):
+        return train_test_split(np.array(images, dtype=np.float32), labels, test_size=test_size, random_state=42)
     
-    # Ensure the augmented directory for the current emotion exists
-    augmented_emotion_dir = os.path.join(base_augmented_dir, emotion)
-    if not os.path.exists(augmented_emotion_dir):
-        os.makedirs(augmented_emotion_dir)
-    
-    # List all images in the emotion directory
-    image_files = os.listdir(emotion_dir)
-    
-    # Iterate over each image file
-    for image_file in image_files:
-        # Full path to the image
-        image_path = os.path.join(emotion_dir, image_file)
-        
-        # Read the image for augmentation
-        try:
-            x = io.imread(image_path)
-            x = x.reshape((1, ) + x.shape)
-        except:
-            continue  # If an image can't be read, skip it
-
-        # Initialize counter
-        i = 0
-        # Generate and save the augmented images
-        for batch in datagen.flow(x, batch_size=16, save_to_dir=augmented_emotion_dir, save_prefix='aug', save_format='png'):
-            i += 1
-            if i > 3:  # Change this to how many augmentations you want per image
-                break  # Stop after generating the desired number of augmented images
-
-
-        print(f"Augmented images for {image_file} saved in {augmented_emotion_dir}")
-
-# from keras.preprocessing.image import ImageDataGenerator
-# from skimage import io
-# import os
-
-# datagen = ImageDataGenerator(
-#     rotation_range=35,
-#     width_shift_range=0.2,
-#     height_shift_range=0.2,
-#     shear_range=0.2,
-#     zoom_range=0.2,
-#     horizontal_flip=True,
-#     fill_mode='nearest'
-# )
-
-# # The base directory where the train data is stored
-# base_train_dir = '../dataset/fer2013plus/train'
-
-# # The base directory where the augmented images will be saved
-# base_augmented_dir = '../dataset/augmented'
-
-# # List of emotions
-# emotions = ['anger']
-
-# # Iterate over each emotion
-# for emotion in emotions:
-#     # Path to the specific emotion directory
-#     emotion_dir = os.path.join(base_train_dir, emotion)
-    
-#     # Ensure the augmented directory for the current emotion exists
-#     augmented_emotion_dir = os.path.join(base_augmented_dir, emotion)
-#     if not os.path.exists(augmented_emotion_dir):
-#         os.makedirs(augmented_emotion_dir)
-    
-#     # List all images in the emotion directory
-#     image_files = os.listdir(emotion_dir)
-    
-#     # Collect all image paths for augmentation
-#     image_paths = [os.path.join(emotion_dir, image_file) for image_file in image_files]
-    
-#     # Initialize a list to store valid image paths
-#     valid_image_paths = []
-    
-#     # Count the number of valid images
-#     for image_path in image_paths:
-#         try:
-#             io.imread(image_path)
-#             valid_image_paths.append(image_path)
-#         except:
-#             print(f"Error reading {image_path}")
-    
-#     num_valid_images = len(valid_image_paths)
-#     print(f"Number of valid images for {emotion}: {num_valid_images}")
-    
-#     # Calculate how many times each image should be augmented
-#     num_augmentations_per_image = int((5020 - num_valid_images) / num_valid_images) + 1
-    
-#     # Augment images
-#     for image_path in valid_image_paths:
-#         try:
-#             x = io.imread(image_path)
-#             x = x.reshape((1, ) + x.shape)
-#         except:
-#             continue
-        
-#         for i in range(num_augmentations_per_image):
-#             for batch in datagen.flow(x, batch_size=16, save_to_dir=augmented_emotion_dir, save_prefix='aug', save_format='png'):
-#                 break  # Only one batch per image
-        
-#     print(f"Augmentation completed for {emotion}")
-
-# print("All augmentations completed!")
+preprocessing = Preprocessing()
+names, images = preprocessing.load_dataset("ori")
+names, images = preprocessing.image_augmentator(images, names)
