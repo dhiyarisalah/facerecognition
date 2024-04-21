@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout, GlobalAveragePooling2D
 from tensorflow.keras.regularizers import l2
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.callbacks import Callback, CSVLogger, ReduceLROnPlateau
@@ -13,51 +13,20 @@ import json
 
 def create_custom_model(num_classes):
     return Sequential([
-        Input(shape=(48, 48, 1)),  
-        Conv2D(32, (15, 15), activation='relu', padding='same',
-               bias_regularizer=l2(0.1)),
+        Input(shape=(48, 48, 1)),
+        Conv2D(32, (3, 3), activation='relu', padding='same', bias_regularizer=l2(0.01), kernel_regularizer=l2(0.01)),
         MaxPooling2D((2, 2)),
-        Conv2D(32, (13, 13), activation='relu', padding='same',
-               bias_regularizer=l2(0.1)),
-        Dropout(0.1),
-        Conv2D(64, (8, 8), activation='relu', padding='same',
-               bias_regularizer=l2(0.1), kernel_regularizer=l2(0.1)),
-        Conv2D(64, (8, 8), activation='relu', padding='same',
-               bias_regularizer=l2(0.1), kernel_regularizer=l2(0.1)),
+        Conv2D(64, (3, 3), activation='relu', padding='same', bias_regularizer=l2(0.01), kernel_regularizer=l2(0.01)),
         MaxPooling2D((2, 2)),
         Dropout(0.1),
-        Conv2D(128, (6, 6), activation='relu', padding='same',
-               bias_regularizer=l2(0.1), kernel_regularizer=l2(0.1)),
-        Conv2D(128, (6, 6), activation='relu', padding='same',
-               bias_regularizer=l2(0.1), kernel_regularizer=l2(0.1)),
+        Conv2D(128, (3, 3), activation='relu', padding='same', bias_regularizer=l2(0.01), kernel_regularizer=l2(0.01)),
         MaxPooling2D((2, 2)),
         Dropout(0.2),
-        Conv2D(256, (3, 3), activation='relu', padding='same',
-               bias_regularizer=l2(0.000001), kernel_regularizer=l2(0.000001)),
-        Dropout(0.3),
         Flatten(),
-        Dense(1024, activation='relu', bias_regularizer=l2(0.1)),
+        Dense(256, activation='relu', bias_regularizer=l2(0.01)),
         Dropout(0.2),
         Dense(num_classes, activation='softmax')
     ])
-
-# def create_vgg16_model(num_classes):
-#     base_model = tf.keras.applications.VGG16(weights='imagenet', include_top=False, input_shape=(48, 48, 3))
-#     base_model.trainable = False
-#     return Sequential([
-#         base_model,
-#         GlobalAveragePooling2D(),
-#         Dense(num_classes, activation='softmax')
-#     ])
-
-# def create_resnet_model(num_classes):
-#     base_model = tf.keras.applications.ResNet50(weights='imagenet', include_top=False, input_shape=(48, 48, 3))
-#     base_model.trainable = False
-#     return Sequential([
-#         base_model,
-#         GlobalAveragePooling2D(),
-#         Dense(num_classes, activation='softmax')
-#     ])
 
 class MetricsCallback(Callback):
     def __init__(self, validation_generator):
@@ -83,10 +52,6 @@ class MetricsCallback(Callback):
         _val_recall = recall_score(val_targ, val_predict, average='macro')
         _val_f1 = f1_score(val_targ, val_predict, average='macro')
 
-        self.val_f1s.append(_val_f1)
-        self.val_recalls.append(_val_recall)
-        self.val_precisions.append(_val_precision)
-
         logs['val_precision'] = _val_precision
         logs['val_recall'] = _val_recall
         logs['val_f1'] = _val_f1
@@ -94,7 +59,7 @@ class MetricsCallback(Callback):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Training Parameters')
-    parser.add_argument('-model', type=str, required=True, help='Model to train: custom, vgg16, resnet')
+    parser.add_argument('-model', type=str, required=True, help='Model to train: custom')
     parser.add_argument('-dataset', type=str, required=True, help='Dataset to use: ori, masked')
     parser.add_argument('-epochs', type=int, required=True, help='Number of epochs')
     parser.add_argument('-bs', type=int, required=True, help='Batch size')
@@ -112,7 +77,7 @@ def main():
         target_size=(48, 48),
         batch_size=args.bs,
         class_mode='categorical',
-        color_mode='rgb' if args.model in ['vgg16', 'resnet'] else 'grayscale',
+        color_mode='grayscale',
         subset='training'
     )
 
@@ -121,32 +86,21 @@ def main():
         target_size=(48, 48),
         batch_size=args.bs,
         class_mode='categorical',
-        color_mode='rgb' if args.model in ['vgg16', 'resnet'] else 'grayscale',
+        color_mode='grayscale',
         subset='validation'
     )
 
     num_classes = train_generator.num_classes
-    if args.model == 'custom':
-        model = create_custom_model(num_classes)
-    # elif args.model == 'vgg16':
-    #     model = create_vgg16_model(num_classes)
-    # elif args.model == 'resnet':
-    #     model = create_resnet_model(num_classes)
-    else:
-        raise ValueError("Invalid model type. Choose 'custom', 'vgg16', or 'resnet'.")
-
+    model = create_custom_model(num_classes)
+    
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr),
                   loss='categorical_crossentropy',
                   metrics=['accuracy'])
 
-    # Prepare directories for saving models and logs
-    model_dir = os.path.join('models', args.fn)
-    os.makedirs(model_dir, exist_ok=True)
-
     callbacks = [
-        ReduceLROnPlateau(),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=10, min_lr=0.00001),
         MetricsCallback(validation_generator),
-        CSVLogger(os.path.join(model_dir, args.fn + '.log'))
+        CSVLogger(os.path.join('models', args.fn + '.log'))
     ]
 
     history = model.fit(
@@ -156,10 +110,10 @@ def main():
         callbacks=callbacks
     )
 
-    # Manually save the model to ensure it's in .h5 format
+    model_dir = 'models'
+    os.makedirs(model_dir, exist_ok=True)
     model.save(os.path.join(model_dir, args.fn + '.h5'))
 
-    # Save hyperparameters and metrics to JSON
     hyperparameters = {
         'model_name': args.fn,
         'epochs': args.epochs,
@@ -172,7 +126,6 @@ def main():
     with open(os.path.join(model_dir, 'training_parameters.json'), 'w') as f:
         json.dump(hyperparameters, f, indent=4)
 
-    # Plot loss and accuracy
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
     plt.plot(history.history['loss'], label='Training Loss')
