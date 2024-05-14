@@ -1,9 +1,0 @@
-{
-    "model_name": "100_custom1_ori",
-    "epochs": 100,
-    "batch_size": 32,
-    "learning_rate": 0.001,
-    "val_f1_scores": [],
-    "val_recall_scores": [],
-    "val_precision_scores": []
-}
